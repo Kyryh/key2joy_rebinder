@@ -1,4 +1,13 @@
+#[cfg(target_os = "windows")]
+use std::num::NonZero;
+
 use eframe::{App, CreationContext, egui};
+use egui::ViewportCommand;
+use egui_winit::winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+use tray_icon::{
+    TrayIcon, TrayIconBuilder,
+    menu::{Menu, MenuEvent, MenuItem},
+};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -8,7 +17,26 @@ fn main() -> eframe::Result {
     eframe::run_native("Key2Joy Rebinder", options, Box::new(MyApp::app_creator))
 }
 
-struct MyApp {}
+struct MyApp {
+    #[cfg(target_os = "windows")]
+    window_handle: NonZero<isize>,
+    _tray_icon: TrayIcon,
+}
+
+#[cfg(target_os = "windows")]
+fn set_visibility(window_handle: NonZero<isize>, visibility: bool) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging;
+
+    let show = if visibility {
+        WindowsAndMessaging::SW_SHOWDEFAULT
+    } else {
+        WindowsAndMessaging::SW_HIDE
+    };
+    unsafe {
+        _ = WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show);
+    }
+}
 
 impl MyApp {
     fn app_creator(
@@ -18,12 +46,51 @@ impl MyApp {
     }
 
     fn new(c: &CreationContext) -> Self {
-        Self {}
+        #[cfg(target_os = "windows")]
+        let window_handle = match c.window_handle().unwrap().as_raw().clone() {
+            RawWindowHandle::Win32(win32_window) => win32_window.hwnd,
+            _ => unreachable!(),
+        };
+        MenuEvent::set_event_handler(Some(move |evt: MenuEvent| match evt.id.as_ref() {
+            "OPEN" => {
+                #[cfg(target_os = "windows")]
+                set_visibility(window_handle, true);
+            }
+            "QUIT" => {}
+            _ => {}
+        }));
+
+        Self {
+            #[cfg(target_os = "windows")]
+            window_handle,
+            _tray_icon: TrayIconBuilder::new()
+                .with_tooltip("Key2Joy Rebinder")
+                .with_menu(Box::new(
+                    Menu::with_items(&[
+                        &MenuItem::with_id("OPEN", "Open", true, None),
+                        &MenuItem::with_id("QUIT", "Quit", true, None),
+                    ])
+                    .unwrap(),
+                ))
+                // .with_icon(icon)
+                .build()
+                .unwrap(),
+        }
     }
 }
 
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ctx, |ui| {});
+        if ctx.input(|i| i.viewport().close_requested()) {
+            #[cfg(target_os = "windows")]
+            set_visibility(self.window_handle, false);
+            // ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            println!("1");
+            if ui.button("test").clicked() {}
+        });
     }
 }
