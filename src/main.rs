@@ -87,7 +87,9 @@ impl MyApp {
                 #[cfg(target_os = "windows")]
                 set_visibility(window_handle, true);
             }
-            "QUIT" => {}
+            "QUIT" => {
+                process::exit(0);
+            }
             _ => {}
         }));
 
