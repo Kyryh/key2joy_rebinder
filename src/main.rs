@@ -1,9 +1,14 @@
 #[cfg(target_os = "windows")]
 use std::num::NonZero;
+use std::{process, thread};
 
 use eframe::{App, CreationContext, egui};
 use egui::ViewportCommand;
 use egui_winit::winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
+use interprocess::local_socket::{
+    GenericFilePath, GenericNamespaced, ListenerOptions, NameType as _, Stream, ToFsName, ToNsName,
+    traits::{ListenerExt as _, Stream as _},
+};
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuEvent, MenuItem},
@@ -51,6 +56,32 @@ impl MyApp {
             RawWindowHandle::Win32(win32_window) => win32_window.hwnd,
             _ => unreachable!(),
         };
+
+        let socket_name = {
+            if GenericNamespaced::is_supported() {
+                "key2joy_rebinder.sock".to_ns_name::<GenericNamespaced>()
+            } else {
+                "/tmp/key2joy_rebinder.sock".to_fs_name::<GenericFilePath>()
+            }
+        }
+        .unwrap();
+
+        if let Ok(_) = Stream::connect(socket_name.clone()) {
+            process::exit(0);
+        }
+
+        let ctx = c.egui_ctx.clone();
+        thread::spawn(move || {
+            let listener = ListenerOptions::new()
+                .name(socket_name)
+                .create_sync()
+                .unwrap();
+            for _ in listener.incoming() {
+                set_visibility(window_handle, true);
+                ctx.send_viewport_cmd(ViewportCommand::Focus);
+            }
+        });
+
         MenuEvent::set_event_handler(Some(move |evt: MenuEvent| match evt.id.as_ref() {
             "OPEN" => {
                 #[cfg(target_os = "windows")]
