@@ -3,14 +3,22 @@ name = "key2joy_rebinder"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "xinput_injection"
+crate-type = ["cdylib"]
+
 [dependencies]
-winapi = { version = "0.3.9", features = [
-    "consoleapi",
-    "libloaderapi",
-    "winuser",
-] }
 eframe = "0.33.3"
 tray-icon = "0.21.2"
 egui-winit = "0.33.3"
-windows = { version = "0.62.2", features = ["Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62.2", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_System_SystemServices",
+    "Win32_System_Console",
+    "Win32_System_LibraryLoader",
+    "Win32_System_ProcessStatus",
+    "Win32_UI_Input_XboxController",
+    "Win32_System_Threading",
+] }
 interprocess = "2.2.3"

@@ -3,7 +3,6 @@ use std::num::NonZero;
 use std::{process, thread};
 
 use eframe::{App, CreationContext, egui};
-use egui::ViewportCommand;
 use egui_winit::winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
 use interprocess::local_socket::{
     GenericFilePath, GenericNamespaced, ListenerOptions, NameType as _, Stream, ToFsName, ToNsName,
@@ -13,12 +12,13 @@ use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuEvent, MenuItem},
 };
-use windows::Win32::Foundation::HWND;
-use windows::Win32::UI::WindowsAndMessaging;
+
+use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging};
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        centered: true,
         ..Default::default()
     };
     eframe::run_native("Key2Joy Rebinder", options, Box::new(MyApp::app_creator))
@@ -36,7 +36,9 @@ fn set_visibility(window_handle: NonZero<isize>, visibility: bool) {
         WindowsAndMessaging::SW_HIDE
     };
     unsafe {
-        _ = WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show);
+        WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show)
+            .ok()
+            .unwrap();
     }
 }
 
@@ -74,7 +76,7 @@ impl MyApp {
                 .unwrap();
             for _ in listener.incoming() {
                 set_visibility(window_handle, true);
-                ctx.send_viewport_cmd(ViewportCommand::Focus);
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         });
 
@@ -111,13 +113,25 @@ impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested()) {
             set_visibility(self.window_handle, false);
-            // ctx.send_viewport_cmd(ViewportCommand::Visible(false));
-            ctx.send_viewport_cmd(ViewportCommand::CancelClose);
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
         }
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            println!("1");
-            if ui.button("test").clicked() {}
+            ui.columns_const(|[ui_left, ui_right]| {
+                egui::Frame::new()
+                    .fill(egui::Color32::BLACK)
+                    .corner_radius(5)
+                    .inner_margin(2)
+                    .show(ui_left, |ui| {
+                        // TODO
+                    });
+                egui::Frame::new()
+                    .fill(egui::Color32::BLACK)
+                    .corner_radius(5)
+                    .inner_margin(2)
+                    .show(ui_right, |ui| {
+                        // TODO
+                    });
+            });
         });
     }
 }
