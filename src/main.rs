@@ -1,5 +1,7 @@
 #![cfg(windows)]
 use std::num::NonZero;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use std::{process, thread};
 
 use eframe::{App, CreationContext, egui};
@@ -15,6 +17,9 @@ use tray_icon::{
 
 use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging};
 
+mod winzozz;
+use winzozz::*;
+
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
@@ -26,6 +31,7 @@ fn main() -> eframe::Result {
 
 struct MyApp {
     window_handle: NonZero<isize>,
+    available_processes: Arc<Mutex<AvailableProcesses>>,
     _tray_icon: TrayIcon,
 }
 
@@ -91,8 +97,19 @@ impl MyApp {
             _ => {}
         }));
 
+        let available_processes = Arc::<Mutex<AvailableProcesses>>::default();
+        let available_processes_clone = available_processes.clone();
+        thread::spawn(move || {
+            loop {
+                let processes = get_available_processes();
+                *available_processes_clone.lock().unwrap() = processes;
+                thread::sleep(Duration::from_secs(5));
+            }
+        });
+
         Self {
             window_handle,
+            available_processes,
             _tray_icon: TrayIconBuilder::new()
                 .with_tooltip("Key2Joy Rebinder")
                 .with_menu(Box::new(
@@ -122,7 +139,17 @@ impl eframe::App for MyApp {
                     .corner_radius(5)
                     .inner_margin(2)
                     .show(ui_left, |ui| {
-                        // TODO
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            ui.label("PROCESSES:");
+                        });
+                        for process in self.available_processes.lock().unwrap().iter() {
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                                if ui.button("➕").clicked() {
+                                    // TODO
+                                }
+                                ui.label(&process.0);
+                            });
+                        }
                     });
                 egui::Frame::new()
                     .fill(egui::Color32::BLACK)
