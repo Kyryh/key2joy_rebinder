@@ -1,4 +1,4 @@
-#[cfg(target_os = "windows")]
+#![cfg(windows)]
 use std::num::NonZero;
 use std::{process, thread};
 
@@ -13,6 +13,8 @@ use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuEvent, MenuItem},
 };
+use windows::Win32::Foundation::HWND;
+use windows::Win32::UI::WindowsAndMessaging;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -23,16 +25,11 @@ fn main() -> eframe::Result {
 }
 
 struct MyApp {
-    #[cfg(target_os = "windows")]
     window_handle: NonZero<isize>,
     _tray_icon: TrayIcon,
 }
 
-#[cfg(target_os = "windows")]
 fn set_visibility(window_handle: NonZero<isize>, visibility: bool) {
-    use windows::Win32::Foundation::HWND;
-    use windows::Win32::UI::WindowsAndMessaging;
-
     let show = if visibility {
         WindowsAndMessaging::SW_SHOWDEFAULT
     } else {
@@ -51,7 +48,6 @@ impl MyApp {
     }
 
     fn new(c: &CreationContext) -> Self {
-        #[cfg(target_os = "windows")]
         let window_handle = match c.window_handle().unwrap().as_raw().clone() {
             RawWindowHandle::Win32(win32_window) => win32_window.hwnd,
             _ => unreachable!(),
@@ -94,7 +90,6 @@ impl MyApp {
         }));
 
         Self {
-            #[cfg(target_os = "windows")]
             window_handle,
             _tray_icon: TrayIconBuilder::new()
                 .with_tooltip("Key2Joy Rebinder")
@@ -115,7 +110,6 @@ impl MyApp {
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if ctx.input(|i| i.viewport().close_requested()) {
-            #[cfg(target_os = "windows")]
             set_visibility(self.window_handle, false);
             // ctx.send_viewport_cmd(ViewportCommand::Visible(false));
             ctx.send_viewport_cmd(ViewportCommand::CancelClose);
