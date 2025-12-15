@@ -18,6 +18,7 @@ use tray_icon::{
 use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging};
 
 mod winzozz;
+use windows::core::HRESULT;
 use winzozz::*;
 
 fn main() -> eframe::Result {
@@ -42,9 +43,12 @@ fn set_visibility(window_handle: NonZero<isize>, visibility: bool) {
         WindowsAndMessaging::SW_HIDE
     };
     unsafe {
-        WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show)
-            .ok()
-            .unwrap();
+        let res = WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show).ok();
+        if let Err(err) = res
+            && err.code() != HRESULT(0)
+        {
+            panic!("{err:?}");
+        }
     }
 }
 
