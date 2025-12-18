@@ -22,3 +22,4 @@ windows = { version = "0.62.2", features = [
     "Win32_System_Threading",
 ] }
 interprocess = "2.2.3"
+retour = { version = "0.3.1", features = ["static-detour"] }
