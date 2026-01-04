@@ -49,16 +49,22 @@ pub fn xinput_get_state_hook(dw_user_index: u32, pstate: *mut XINPUT_STATE) -> u
 pub extern "system" fn DllMain(_: HINSTANCE, fdw_reason: u32, _: *const c_void) -> bool {
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
-            AllocConsole().unwrap();
-            HOOK.initialize(
-                mem::transmute(find_xinput_get_state_address().unwrap()),
-                xinput_get_state_hook,
-            )
-            .unwrap()
-            .enable()
-            .unwrap();
+            if let Some(xinput_get_state_address) = find_xinput_get_state_address() {
+                AllocConsole().unwrap();
+                HOOK.initialize(
+                    mem::transmute(xinput_get_state_address),
+                    xinput_get_state_hook,
+                )
+                .unwrap()
+                .enable()
+                .unwrap();
+            }
         },
-        DLL_PROCESS_DETACH => unsafe { HOOK.disable().unwrap() },
+        DLL_PROCESS_DETACH => unsafe {
+            if HOOK.is_enabled() {
+                HOOK.disable().unwrap()
+            }
+        },
         _ => {}
     }
     true
