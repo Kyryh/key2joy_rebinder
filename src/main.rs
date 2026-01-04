@@ -1,168 +1,99 @@
 #![cfg(windows)]
-use std::num::NonZero;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
-use std::{process, thread};
 
-use eframe::{App, CreationContext, egui};
-use egui_winit::winit::raw_window_handle::{HasWindowHandle as _, RawWindowHandle};
-use interprocess::local_socket::{
-    GenericFilePath, GenericNamespaced, ListenerOptions, NameType as _, Stream, ToFsName, ToNsName,
-    traits::{ListenerExt as _, Stream as _},
+use dll_syringe::{
+    Syringe,
+    process::{OwnedProcess, Process as _},
 };
-use tray_icon::{
-    TrayIcon, TrayIconBuilder,
-    menu::{Menu, MenuEvent, MenuItem},
+use std::{
+    env,
+    fmt::Display,
+    io::{self, Read as _, Write as _},
 };
 
-use windows::Win32::{Foundation::HWND, UI::WindowsAndMessaging};
+fn find_process(name: &str) -> Option<OwnedProcess> {
+    OwnedProcess::all()
+        .into_iter()
+        .filter(|p| match p.base_name() {
+            Ok(base_name) => base_name
+                .to_ascii_lowercase()
+                .to_string_lossy()
+                .contains(name),
+            Err(_) => false,
+        })
+        .filter(|p| match p.modules() {
+            Ok(modules) => modules.into_iter().any(|m| match m.base_name() {
+                Ok(module_name) => module_name
+                    .to_ascii_lowercase()
+                    .to_string_lossy()
+                    .contains("xinput"),
+                Err(_) => false,
+            }),
+            Err(_) => false,
+        })
+        .next()
+}
 
-mod winzozz;
-use windows::core::HRESULT;
-use winzozz::*;
-
-fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
-        centered: true,
-        ..Default::default()
+fn inject(process_name: &str) -> Result<(), Box<dyn Display>> {
+    if process_name.is_empty() {
+        return Err(Box::new("Process name cannot be empty"));
+    }
+    let Some(target_process) = find_process(process_name) else {
+        return Err(Box::new("No process with XInput loaded found"));
     };
-    eframe::run_native("Key2Joy Rebinder", options, Box::new(MyApp::app_creator))
+
+    let dll_path = match env::current_exe() {
+        Ok(mut path) => {
+            path.pop();
+            path.push(
+                if target_process.is_x64().map_err(|err| Box::new(err) as _)? {
+                    "xinput_injection_x64.dll"
+                } else {
+                    "xinput_injection_x32.dll"
+                },
+            );
+            path
+        }
+        Err(err) => return Err(Box::new(err)),
+    };
+
+    let syringe = Syringe::for_process(target_process);
+
+    match syringe.inject(&dll_path) {
+        Ok(_) => Ok(()),
+        Err(err) => Err(Box::new(err)),
+    }
 }
 
-struct MyApp {
-    window_handle: NonZero<isize>,
-    available_processes: Arc<Mutex<AvailableProcesses>>,
-    _tray_icon: TrayIcon,
+fn wait_on_exit() -> io::Result<()> {
+    println!("Press Enter to continue...");
+    let mut stdin = io::stdin();
+    stdin.read(&mut []).map(|_| ())
 }
 
-fn set_visibility(window_handle: NonZero<isize>, visibility: bool) {
-    let show = if visibility {
-        WindowsAndMessaging::SW_SHOWDEFAULT
+fn main() -> io::Result<()> {
+    let (process_name, should_wait_on_exit) = match env::args().nth(1) {
+        Some(name) => (name, false),
+        None => {
+            let mut stdout = io::stdout();
+            write!(stdout, "Enter process name: ")?;
+            stdout.flush()?;
+            let stdin = io::stdin();
+            let mut buf = String::new();
+            stdin.read_line(&mut buf)?;
+            (buf, true)
+        }
+    };
+    match inject(&process_name.to_ascii_lowercase().trim_ascii()) {
+        Ok(_) => {
+            println!("Injected successfully")
+        }
+        Err(err) => {
+            println!("Couldn't inject: {}", err);
+        }
+    }
+    if should_wait_on_exit {
+        wait_on_exit()
     } else {
-        WindowsAndMessaging::SW_HIDE
-    };
-    unsafe {
-        let res = WindowsAndMessaging::ShowWindow(HWND(window_handle.get() as _), show).ok();
-        if let Err(err) = res
-            && err.code() != HRESULT(0)
-        {
-            panic!("{err:?}");
-        }
-    }
-}
-
-impl MyApp {
-    fn app_creator(
-        c: &CreationContext,
-    ) -> Result<Box<dyn App>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(Self::new(c)))
-    }
-
-    fn new(c: &CreationContext) -> Self {
-        let window_handle = match c.window_handle().unwrap().as_raw().clone() {
-            RawWindowHandle::Win32(win32_window) => win32_window.hwnd,
-            _ => unreachable!(),
-        };
-
-        let socket_name = {
-            if GenericNamespaced::is_supported() {
-                "key2joy_rebinder.sock".to_ns_name::<GenericNamespaced>()
-            } else {
-                "/tmp/key2joy_rebinder.sock".to_fs_name::<GenericFilePath>()
-            }
-        }
-        .unwrap();
-
-        if let Ok(_) = Stream::connect(socket_name.clone()) {
-            process::exit(0);
-        }
-
-        let ctx = c.egui_ctx.clone();
-        thread::spawn(move || {
-            let listener = ListenerOptions::new()
-                .name(socket_name)
-                .create_sync()
-                .unwrap();
-            for _ in listener.incoming() {
-                set_visibility(window_handle, true);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-            }
-        });
-
-        MenuEvent::set_event_handler(Some(move |evt: MenuEvent| match evt.id.as_ref() {
-            "OPEN" => {
-                #[cfg(target_os = "windows")]
-                set_visibility(window_handle, true);
-            }
-            "QUIT" => {
-                process::exit(0);
-            }
-            _ => {}
-        }));
-
-        let available_processes = Arc::<Mutex<AvailableProcesses>>::default();
-        let available_processes_clone = available_processes.clone();
-        thread::spawn(move || {
-            loop {
-                let processes = get_available_processes();
-                *available_processes_clone.lock().unwrap() = processes;
-                thread::sleep(Duration::from_secs(5));
-            }
-        });
-
-        Self {
-            window_handle,
-            available_processes,
-            _tray_icon: TrayIconBuilder::new()
-                .with_tooltip("Key2Joy Rebinder")
-                .with_menu(Box::new(
-                    Menu::with_items(&[
-                        &MenuItem::with_id("OPEN", "Open", true, None),
-                        &MenuItem::with_id("QUIT", "Quit", true, None),
-                    ])
-                    .unwrap(),
-                ))
-                // .with_icon(icon)
-                .build()
-                .unwrap(),
-        }
-    }
-}
-
-impl eframe::App for MyApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if ctx.input(|i| i.viewport().close_requested()) {
-            set_visibility(self.window_handle, false);
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-        }
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.columns_const(|[ui_left, ui_right]| {
-                egui::Frame::new()
-                    .fill(egui::Color32::BLACK)
-                    .corner_radius(5)
-                    .inner_margin(2)
-                    .show(ui_left, |ui| {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                            ui.label("PROCESSES:");
-                        });
-                        for process in self.available_processes.lock().unwrap().iter() {
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                                if ui.button("➕").clicked() {
-                                    // TODO
-                                }
-                                ui.label(&process.0);
-                            });
-                        }
-                    });
-                egui::Frame::new()
-                    .fill(egui::Color32::BLACK)
-                    .corner_radius(5)
-                    .inner_margin(2)
-                    .show(ui_right, |ui| {
-                        // TODO
-                    });
-            });
-        });
+        Ok(())
     }
 }
