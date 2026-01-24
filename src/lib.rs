@@ -18,9 +18,12 @@ use windows::{
     core::{PCSTR, PCWSTR},
 };
 
+mod config;
+use config::{CONFIG, GamepadInput, Vec2};
+
 /// Returns 1 if pressed, 0 if not pressed
-fn key_pressed(key: char) -> u16 {
-    unsafe { GetKeyState(key as i32) as u16 >> 15 }
+fn key_pressed(keycode: i32) -> u16 {
+    unsafe { GetKeyState(keycode) as u16 >> 15 }
 }
 
 pub static HOOK: StaticDetour<unsafe extern "system" fn(u32, *mut XINPUT_STATE) -> u32> = {
@@ -36,11 +39,31 @@ pub fn xinput_get_state_hook(dw_user_index: u32, pstate: *mut XINPUT_STATE) -> u
     if dw_user_index == 0
         && let Some(pstate) = unsafe { pstate.as_mut() }
     {
-        pstate.Gamepad.wButtons.0 |= 0b0
-            | key_pressed('W') << 0
-            | key_pressed('S') << 1
-            | key_pressed('A') << 2
-            | key_pressed('D') << 3;
+        let mut left_stick = Vec2::new(0., 0.);
+        let mut right_stick = Vec2::new(0., 0.);
+        for (gamepad_input, keycode) in &CONFIG.keys_to_gamepad_map {
+            if key_pressed(*keycode) != 0 {
+                match gamepad_input {
+                    GamepadInput::Button(button) => pstate.Gamepad.wButtons.0 |= button,
+                    GamepadInput::LeftTrigger => pstate.Gamepad.bLeftTrigger = u8::MAX,
+                    GamepadInput::RightTrigger => pstate.Gamepad.bRightTrigger = u8::MAX,
+                    GamepadInput::LeftStick(direction) => left_stick += direction,
+                    GamepadInput::RightStick(direction) => right_stick += direction,
+                }
+            }
+        }
+        if left_stick != Vec2::ZERO {
+            left_stick.normalize();
+            left_stick *= i16::MAX as f32;
+            pstate.Gamepad.sThumbLX = left_stick.x as i16;
+            pstate.Gamepad.sThumbLY = left_stick.y as i16;
+        }
+        if right_stick != Vec2::ZERO {
+            right_stick.normalize();
+            right_stick *= i16::MAX as f32;
+            pstate.Gamepad.sThumbRX = right_stick.x as i16;
+            pstate.Gamepad.sThumbRY = right_stick.y as i16;
+        }
     }
     result
 }
@@ -50,7 +73,13 @@ pub extern "system" fn DllMain(_: HINSTANCE, fdw_reason: u32, _: *const c_void) 
     match fdw_reason {
         DLL_PROCESS_ATTACH => unsafe {
             if let Some(xinput_get_state_address) = find_xinput_get_state_address() {
-                AllocConsole().unwrap();
+                if CONFIG.enable_console {
+                    AllocConsole().unwrap();
+                }
+                println!("Detected bindings:");
+                for (gamepad_input, keycode) in &CONFIG.keys_to_gamepad_map {
+                    println!("- {keycode} => {gamepad_input:?}");
+                }
                 HOOK.initialize(
                     mem::transmute(xinput_get_state_address),
                     xinput_get_state_hook,
