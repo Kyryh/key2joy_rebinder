@@ -74,7 +74,7 @@ pub extern "system" fn DllMain(_: HINSTANCE, fdw_reason: u32, _: *const c_void) 
         DLL_PROCESS_ATTACH => unsafe {
             if let Some(xinput_get_state_address) = find_xinput_get_state_address() {
                 if CONFIG.enable_console {
-                    AllocConsole().unwrap();
+                    _ = AllocConsole();
                 }
                 println!("Detected bindings:");
                 for (gamepad_input, keycode) in &CONFIG.keys_to_gamepad_map {
