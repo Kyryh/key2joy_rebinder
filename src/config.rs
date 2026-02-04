@@ -3,7 +3,7 @@ use std::{
     env,
     ffi::OsString,
     fs, io,
-    ops::{Add, AddAssign, MulAssign},
+    ops::{AddAssign, MulAssign},
     os::windows::ffi::OsStringExt as _,
     path::PathBuf,
     str::FromStr,
