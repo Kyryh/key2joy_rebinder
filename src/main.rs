@@ -48,7 +48,7 @@ fn inject(process_name: &str) -> Result<(), Box<dyn Display>> {
                 if target_process.is_x64().map_err(|err| Box::new(err) as _)? {
                     "xinput_injection_x64.dll"
                 } else {
-                    "xinput_injection_x32.dll"
+                    "xinput_injection_x86.dll"
                 },
             );
             path

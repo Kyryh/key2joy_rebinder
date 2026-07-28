@@ -101,7 +101,7 @@ pub extern "system" fn DllMain(_: HINSTANCE, fdw_reason: u32, _: *const c_void) 
 
 fn find_xinput_get_state_address() -> Option<usize> {
     for lib_name in [
-        "xinput1_4.dll\0",
+        // "xinput1_4.dll\0",
         "xinput1_3.dll\0",
         "xinput1_2.dll\0",
         "xinput1_1.dll\0",
